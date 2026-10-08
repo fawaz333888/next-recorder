@@ -17,7 +17,12 @@ class NextRecorderApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) => RecordingNotifier(RecorderService(), NativeService()),
+      create: (_) {
+        final notifier = RecordingNotifier(RecorderService(), NativeService());
+        // Tombol Stop di notifikasi foreground service -> akhiri segmen.
+        NativeService().setStopSegmentHandler(() => notifier.stopSegment());
+        return notifier;
+      },
       child: MaterialApp(
         title: 'Next Recorder',
         debugShowCheckedModeBanner: false,

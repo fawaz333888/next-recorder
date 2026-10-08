@@ -52,8 +52,11 @@ class RecordingNotifier extends ChangeNotifier {
   }
 
   Future<bool> _ensurePermission() async {
-    final status = await Permission.microphone.request();
-    return status.isGranted;
+    // Notification permission = POST_NOTIFICATIONS di Android 13+,
+    // dibutuhkan agar foreground service menampilkan notif.
+    await [Permission.microphone, Permission.notification].request();
+    final mic = await Permission.microphone.status;
+    return mic.isGranted;
   }
 
   /// Mulai segmen baru (tekan/tahan tombol rekam).
@@ -69,12 +72,16 @@ class RecordingNotifier extends ChangeNotifier {
     _timer = Timer.periodic(const Duration(milliseconds: 100), (_) {
       elapsed.value += 100;
       total.value += 100;
+      // Update teks notif tiap detik saja (hemat IPC).
+      if (elapsed.value % 1000 == 0) {
+        _native.updateForeground(_notifText());
+      }
     });
     notifyListeners();
     return true;
   }
 
-  /// Akhiri segmen (lepas tombol / ketuk stop).
+  /// Akhiri segmen (lepas tombol / ketuk stop / tombol Stop di notifikasi).
   Future<void> stopSegment() async {
     if (!_isRecording) return;
 
@@ -141,6 +148,9 @@ class RecordingNotifier extends ChangeNotifier {
   void _refreshTotal() {
     total.value = _segments.fold(0, (sum, s) => sum + s.durationMs);
   }
+
+  String _notifText() =>
+      'Segmen ${formatDuration(elapsed.value)} • Total ${formatDuration(total.value)}';
 
   void _deleteQuietly(String path) {
     try {

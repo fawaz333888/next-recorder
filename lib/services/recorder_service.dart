@@ -2,14 +2,19 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
+import 'native_service.dart';
+
 class RecorderService {
   final _recorder = AudioRecorder();
+  final _native = NativeService();
   bool _recording = false;
   bool get isRecording => _recording;
 
   Future<bool> hasPermission() => _recorder.hasPermission();
 
   /// Mulai rekam segmen baru ke file temp .m4a.
+  /// Foreground service dinyalakan bersamaan agar Android tidak membunuh
+  /// proses saat app di-background / layar mati.
   Future<String?> start() async {
     if (_recording) return null;
     final dir = await getTemporaryDirectory();
@@ -26,6 +31,7 @@ class RecorderService {
       path: path,
     );
     _recording = true;
+    await _native.startForeground('Merekam…');
     return path;
   }
 
@@ -34,6 +40,7 @@ class RecorderService {
     if (!_recording) return null;
     final path = await _recorder.stop();
     _recording = false;
+    await _native.stopForeground();
     return path;
   }
 
@@ -41,6 +48,7 @@ class RecorderService {
   Future<void> cancel() async {
     await _recorder.cancel();
     _recording = false;
+    await _native.stopForeground();
   }
 
   void dispose() => _recorder.dispose();

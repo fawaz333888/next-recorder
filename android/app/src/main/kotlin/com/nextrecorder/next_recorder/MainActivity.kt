@@ -8,6 +8,7 @@ import android.media.MediaFormat
 import android.media.MediaMuxer
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
@@ -22,52 +23,106 @@ import java.nio.ByteBuffer
 class MainActivity : FlutterActivity() {
     private val channel = "next_recorder/native"
     private val TAG = "NextRecorderNative"
+    private var methodChannel: MethodChannel? = null
+
+    /// Stop dari notifikasi diterima sebelum Flutter engine siap -> antrikan.
+    private var pendingStop = false
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        if (intent?.getBooleanExtra(RecordingService.EXTRA_STOP_SEGMENT, false) == true) {
+            pendingStop = true
+        }
+        super.onCreate(savedInstanceState)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(RecordingService.EXTRA_STOP_SEGMENT, false)) {
+            methodChannel?.invokeMethod("stopSegment", null)
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channel)
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "merge" -> {
-                        val paths = call.argument<List<String>>("paths") ?: emptyList()
-                        val outPath = call.argument<String>("outPath")
-                        if (outPath == null) {
-                            result.error("ARG", "outPath is null", null)
-                            return@setMethodCallHandler
-                        }
-                        val ok = mergeSegments(paths, outPath)
-                        if (ok) result.success(true)
-                        else result.error("MERGE", "Failed to merge segments", null)
+        methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channel)
+        methodChannel!!.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "merge" -> {
+                    val paths = call.argument<List<String>>("paths") ?: emptyList()
+                    val outPath = call.argument<String>("outPath")
+                    if (outPath == null) {
+                        result.error("ARG", "outPath is null", null)
+                        return@setMethodCallHandler
                     }
-
-                    "saveToMediaStore" -> {
-                        val src = call.argument<String>("src")
-                        val name = call.argument<String>("name")
-                        if (src == null || name == null) {
-                            result.error("ARG", "src or name is null", null)
-                            return@setMethodCallHandler
-                        }
-                        try {
-                            val saved = saveToMediaStore(src, name)
-                            result.success(saved)
-                        } catch (e: Exception) {
-                            result.error("SAVE", e.message, null)
-                        }
-                    }
-
-                    "openFile" -> {
-                        val path = call.argument<String>("path")
-                        result.success(openFile(path))
-                    }
-
-                    "shareFile" -> {
-                        val path = call.argument<String>("path")
-                        result.success(shareFile(path))
-                    }
-
-                    else -> result.notImplemented()
+                    val ok = mergeSegments(paths, outPath)
+                    if (ok) result.success(true)
+                    else result.error("MERGE", "Failed to merge segments", null)
                 }
+
+                "saveToMediaStore" -> {
+                    val src = call.argument<String>("src")
+                    val name = call.argument<String>("name")
+                    if (src == null || name == null) {
+                        result.error("ARG", "src or name is null", null)
+                        return@setMethodCallHandler
+                    }
+                    try {
+                        val saved = saveToMediaStore(src, name)
+                        result.success(saved)
+                    } catch (e: Exception) {
+                        result.error("SAVE", e.message, null)
+                    }
+                }
+
+                "openFile" -> {
+                    val path = call.argument<String>("path")
+                    result.success(openFile(path))
+                }
+
+                "shareFile" -> {
+                    val path = call.argument<String>("path")
+                    result.success(shareFile(path))
+                }
+
+                "fgsStart" -> {
+                    val text = call.argument<String>("text") ?: "Merekam…"
+                    val intent = Intent(this, RecordingService::class.java)
+                        .setAction(RecordingService.ACTION_START)
+                        .putExtra(RecordingService.EXTRA_TEXT, text)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        startForegroundService(intent)
+                    } else {
+                        startService(intent)
+                    }
+                    result.success(true)
+                }
+
+                "fgsUpdate" -> {
+                    val text = call.argument<String>("text") ?: return@setMethodCallHandler
+                    val intent = Intent(this, RecordingService::class.java)
+                        .setAction(RecordingService.ACTION_UPDATE)
+                        .putExtra(RecordingService.EXTRA_TEXT, text)
+                    startService(intent)
+                    result.success(true)
+                }
+
+                "fgsStop" -> {
+                    val intent = Intent(this, RecordingService::class.java)
+                        .setAction(RecordingService.ACTION_STOP)
+                    startService(intent)
+                    result.success(true)
+                }
+
+                else -> result.notImplemented()
             }
+        }
+
+        // Stop dari notifikasi yang datang sebelum engine siap.
+        if (pendingStop) {
+            pendingStop = false
+            methodChannel?.invokeMethod("stopSegment", null)
+        }
     }
     /// Gabungkan list file segmen .m4a menjadi satu file .m4a.
     /// Pakai MediaMuxer + MediaExtractor, tanpa re-encode (cepat & hemat CPU).
