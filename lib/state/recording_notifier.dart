@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -107,6 +108,7 @@ class RecordingNotifier extends ChangeNotifier {
       }
     }
     _refreshTotal();
+    _saveSession();
     notifyListeners();
   }
 
@@ -116,6 +118,7 @@ class RecordingNotifier extends ChangeNotifier {
     final removed = _segments.removeLast();
     _deleteQuietly(removed.filePath);
     _refreshTotal();
+    _saveSession();
     notifyListeners();
   }
 
@@ -133,7 +136,15 @@ class RecordingNotifier extends ChangeNotifier {
     );
     if (!ok) return null;
 
-    return _native.saveToMediaStore(outPath, name);
+    final saved = await _native.saveToMediaStore(outPath, name);
+    if (saved == null) return null;
+
+    // File asli baru dihapus setelah MediaStore benar-benar sukses.
+    _deleteQuietly(outPath);
+    for (final s in _segments) {
+      _deleteQuietly(s.filePath);
+    }
+    return saved;
   }
 
   /// Bersihkan state setelah rekaman disimpan.
@@ -142,7 +153,55 @@ class RecordingNotifier extends ChangeNotifier {
     _nextId = 1;
     elapsed.value = 0;
     _refreshTotal();
+    _saveSession();
     notifyListeners();
+  }
+
+  /// Muat sesi terakhir dari disk. Entry yang filenya hilang dibuang.
+  Future<void> loadSession() async {
+    try {
+      final file = await _sessionFile;
+      if (!file.existsSync()) return;
+      final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+
+      mode = (json['mode'] as String?) == 'toggle'
+          ? RecordMode.toggle
+          : RecordMode.hold;
+      _nextId = json['nextId'] as int? ?? 1;
+
+      final list = json['segments'] as List? ?? [];
+      for (final e in list) {
+        final seg = Segment.fromJson(e as Map<String, dynamic>);
+        if (File(seg.filePath).existsSync()) {
+          _segments.add(seg);
+        } else {
+          debugPrint('Session: file segmen ${seg.id} hilang, dibuang');
+        }
+      }
+      _refreshTotal();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Gagal memuat sesi: $e');
+    }
+  }
+
+  Future<void> _saveSession() async {
+    try {
+      final file = await _sessionFile;
+      file.parent.createSync(recursive: true);
+      file.writeAsStringSync(jsonEncode({
+        'mode': mode == RecordMode.toggle ? 'toggle' : 'hold',
+        'nextId': _nextId,
+        'segments': _segments.map((s) => s.toJson()).toList(),
+      }));
+    } catch (e) {
+      debugPrint('Gagal menyimpan sesi: $e');
+    }
+  }
+
+  Future<File> get _sessionFile async {
+    final dir = await getApplicationSupportDirectory();
+    return File(p.join(dir.path, 'session.json'));
   }
 
   void _refreshTotal() {

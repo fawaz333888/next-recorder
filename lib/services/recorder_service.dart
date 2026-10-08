@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
@@ -36,12 +38,31 @@ class RecorderService {
   }
 
   /// Hentikan rekaman, kembalikan path file hasilnya.
+  ///
+  /// File dipindahkan dari temp dir ke dir persisten (segments/) supaya
+  /// selamat dari pembunuhan proses oleh OS.
   Future<String?> stop() async {
     if (!_recording) return null;
-    final path = await _recorder.stop();
+    final tempPath = await _recorder.stop();
     _recording = false;
     await _native.stopForeground();
-    return path;
+    if (tempPath == null) return null;
+    return _persistSegmentFile(tempPath);
+  }
+
+  /// Pindahkan file segmen ke applicationSupportDirectory/segments/.
+  /// Kembalikan path lama jika pemindahan gagal (daripada kehilangan data).
+  Future<String?> _persistSegmentFile(String tempPath) async {
+    try {
+      final dir = await getApplicationSupportDirectory();
+      final segDir = Directory(p.join(dir.path, 'segments'));
+      if (!segDir.existsSync()) segDir.createSync(recursive: true);
+      final dest = p.join(segDir.path, p.basename(tempPath));
+      File(tempPath).renameSync(dest);
+      return dest;
+    } catch (_) {
+      return tempPath;
+    }
   }
 
   /// Batalkan rekaman dan hapus file-nya.

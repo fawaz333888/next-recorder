@@ -6,23 +6,27 @@ import 'services/native_service.dart';
 import 'services/recorder_service.dart';
 import 'state/recording_notifier.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const NextRecorderApp());
+
+  final notifier = RecordingNotifier(RecorderService(), NativeService());
+  // Tombol Stop di notifikasi foreground service -> akhiri segmen.
+  NativeService().setStopSegmentHandler(() => notifier.stopSegment());
+  // Pulihkan segmen dari sesi sebelumnya (kalau OS membunuh app).
+  await notifier.loadSession();
+
+  runApp(NextRecorderApp(notifier: notifier));
 }
 
 class NextRecorderApp extends StatelessWidget {
-  const NextRecorderApp({super.key});
+  const NextRecorderApp({super.key, required this.notifier});
+
+  final RecordingNotifier notifier;
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) {
-        final notifier = RecordingNotifier(RecorderService(), NativeService());
-        // Tombol Stop di notifikasi foreground service -> akhiri segmen.
-        NativeService().setStopSegmentHandler(() => notifier.stopSegment());
-        return notifier;
-      },
+    return ChangeNotifierProvider.value(
+      value: notifier,
       child: MaterialApp(
         title: 'Next Recorder',
         debugShowCheckedModeBanner: false,
