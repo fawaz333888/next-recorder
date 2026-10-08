@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/segment.dart';
+import '../state/playback_notifier.dart';
 import '../state/recording_notifier.dart';
 import '../utils/format.dart';
 import 'result_screen.dart';
@@ -38,7 +40,10 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _onHoldDown() async {
-    final ok = await context.read<RecordingNotifier>().startSegment();
+    final playback = context.read<PlaybackNotifier>();
+    final recorder = context.read<RecordingNotifier>();
+    await playback.stopAll();
+    final ok = await recorder.startSegment();
     if (!ok && mounted) _showMicDenied();
   }
 
@@ -51,6 +56,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (n.isRecording) {
       await n.stopSegment();
     } else {
+      await context.read<PlaybackNotifier>().stopAll();
       final ok = await n.startSegment();
       if (!ok && mounted) _showMicDenied();
     }
@@ -58,6 +64,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _onUndo() async {
     final n = context.read<RecordingNotifier>();
+    final playback = context.read<PlaybackNotifier>();
     final last = n.lastSegment;
     if (last == null) return;
 
@@ -86,11 +93,13 @@ class _HomeScreenState extends State<HomeScreen>
       if (confirm != true) return;
     }
 
+    await playback.stopAll();
     await n.undo();
   }
 
   Future<void> _onFinish() async {
     final n = context.read<RecordingNotifier>();
+    final playback = context.read<PlaybackNotifier>();
 
     showDialog(
       context: context,
@@ -114,6 +123,8 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       ),
     );
+
+    await playback.stopAll();
 
     final saved = await n.finish();
 
@@ -210,21 +221,7 @@ class _HomeScreenState extends State<HomeScreen>
                     itemCount: n.segments.length,
                     itemBuilder: (ctx, i) {
                       final seg = n.segments[n.segments.length - 1 - i];
-                      return Card(
-                        child: ListTile(
-                          leading: CircleAvatar(child: Text('${seg.id}')),
-                          title: Text(seg.label),
-                          subtitle: Text(clockTime(seg.createdAt)),
-                          trailing: Text(
-                            formatDuration(seg.durationMs),
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontFeatures: const [
-                                FontFeature.tabularFigures()
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
+                      return _SegmentTile(segment: seg, enabled: !recording);
                     },
                   ),
           ),
@@ -275,6 +272,49 @@ class _HomeScreenState extends State<HomeScreen>
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SegmentTile extends StatelessWidget {
+  const _SegmentTile({required this.segment, required this.enabled});
+
+  final Segment segment;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final playing = context.watch<PlaybackNotifier>().isPlaying(segment.id);
+
+    return Card(
+      child: ListTile(
+        leading: CircleAvatar(child: Text('${segment.id}')),
+        title: Text(segment.label),
+        subtitle: Text(clockTime(segment.createdAt)),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              onPressed: enabled
+                  ? () => context.read<PlaybackNotifier>().toggle(segment)
+                  : null,
+              icon: Icon(
+                playing
+                    ? Icons.pause_rounded
+                    : Icons.play_arrow_rounded,
+              ),
+              tooltip: playing ? 'Jeda' : 'Putar segmen',
+            ),
+            Text(
+              formatDuration(segment.durationMs),
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ],
         ),
       ),
     );

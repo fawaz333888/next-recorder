@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'screens/home_screen.dart';
 import 'services/native_service.dart';
 import 'services/recorder_service.dart';
+import 'state/playback_notifier.dart';
 import 'state/recording_notifier.dart';
 
 void main() async {
@@ -25,8 +26,11 @@ class NextRecorderApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider.value(
-      value: notifier,
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider.value(value: notifier),
+        ChangeNotifierProvider(create: (_) => PlaybackNotifier()),
+      ],
       child: MaterialApp(
         title: 'Next Recorder',
         debugShowCheckedModeBanner: false,
